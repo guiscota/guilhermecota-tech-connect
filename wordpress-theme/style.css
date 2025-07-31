@@ -10,11 +10,19 @@ License: GPL v2 or later
 Text Domain: guilherme-cota
 */
 
-/* Reset e Base */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* Import Tailwind CSS */
+@import url('https://cdn.tailwindcss.com');
+
+/* Design System - CSS Variables for Tailwind */
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    scroll-behavior: smooth;
+  }
 }
 
 :root {

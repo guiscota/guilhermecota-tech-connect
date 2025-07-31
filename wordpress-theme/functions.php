@@ -8,6 +8,38 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Enqueue Tailwind CSS and theme assets
+function guilherme_cota_enqueue_scripts() {
+    // Enqueue Tailwind CSS via CDN
+    wp_enqueue_style('tailwind-css', 'https://cdn.tailwindcss.com', array(), '3.4.0');
+    
+    // Enqueue custom styles after Tailwind
+    wp_enqueue_style('guilherme-cota-style', get_stylesheet_uri(), array('tailwind-css'), '1.0.0');
+    
+    // Enqueue JavaScript
+    wp_enqueue_script('guilherme-cota-main', get_template_directory_uri() . '/assets/main.js', array(), '1.0.0', true);
+    
+    // Configure Tailwind for WordPress
+    wp_add_inline_script('tailwind-css', '
+        tailwind.config = {
+            darkMode: "class",
+            content: [".//*.php", "./patterns/*.php"],
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "hsl(var(--primary))",
+                        secondary: "hsl(var(--secondary))",
+                        accent: "hsl(var(--accent))",
+                        background: "hsl(var(--background))",
+                        foreground: "hsl(var(--foreground))"
+                    }
+                }
+            }
+        }
+    ');
+}
+add_action('wp_enqueue_scripts', 'guilherme_cota_enqueue_scripts');
+
 // Theme setup
 function guilherme_cota_setup() {
     // Add theme support
