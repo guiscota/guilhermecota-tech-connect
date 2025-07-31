@@ -8,35 +8,19 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-// Enqueue Tailwind CSS and theme assets
+// Enqueue theme assets
 function guilherme_cota_enqueue_scripts() {
-    // Enqueue Tailwind CSS via CDN
-    wp_enqueue_style('tailwind-css', 'https://cdn.tailwindcss.com', array(), '3.4.0');
-    
-    // Enqueue custom styles after Tailwind
-    wp_enqueue_style('guilherme-cota-style', get_stylesheet_uri(), array('tailwind-css'), '1.0.0');
+    // Enqueue main theme styles
+    wp_enqueue_style('guilherme-cota-style', get_stylesheet_uri(), array(), '2.0.0');
     
     // Enqueue JavaScript
-    wp_enqueue_script('guilherme-cota-main', get_template_directory_uri() . '/assets/main.js', array(), '1.0.0', true);
+    wp_enqueue_script('guilherme-cota-main', get_template_directory_uri() . '/assets/main.js', array(), '2.0.0', true);
     
-    // Configure Tailwind for WordPress
-    wp_add_inline_script('tailwind-css', '
-        tailwind.config = {
-            darkMode: "class",
-            content: [".//*.php", "./patterns/*.php"],
-            theme: {
-                extend: {
-                    colors: {
-                        primary: "hsl(var(--primary))",
-                        secondary: "hsl(var(--secondary))",
-                        accent: "hsl(var(--accent))",
-                        background: "hsl(var(--background))",
-                        foreground: "hsl(var(--foreground))"
-                    }
-                }
-            }
-        }
-    ');
+    // Localize script for AJAX
+    wp_localize_script('guilherme-cota-main', 'ajax_object', array(
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('guilherme_cota_nonce')
+    ));
 }
 add_action('wp_enqueue_scripts', 'guilherme_cota_enqueue_scripts');
 
@@ -50,42 +34,25 @@ function guilherme_cota_setup() {
     add_theme_support('wp-block-styles');
     add_theme_support('align-wide');
     add_theme_support('responsive-embeds');
-    add_theme_support('editor-styles');
+    
+    // Add custom image sizes
+    add_image_size('project-thumbnail', 400, 300, true);
+    add_image_size('hero-image', 1200, 600, true);
     
     // Register navigation menus
     register_nav_menus(array(
-        'primary' => __('Primary Menu', 'guilherme-cota'),
-        'footer' => __('Footer Menu', 'guilherme-cota'),
+        'header' => esc_html__('Header Menu', 'guilherme-cota'),
+        'footer' => esc_html__('Footer Menu', 'guilherme-cota'),
     ));
-    
-    // Add editor styles
-    add_editor_style('assets/editor-style.css');
 }
 add_action('after_setup_theme', 'guilherme_cota_setup');
 
-// Enqueue scripts and styles
-function guilherme_cota_scripts() {
-    // Main stylesheet
-    wp_enqueue_style('guilherme-cota-style', get_stylesheet_uri(), array(), '1.0.0');
-    
-    // Main JavaScript
-    wp_enqueue_script('guilherme-cota-main', get_template_directory_uri() . '/assets/main.js', array(), '1.0.0', true);
-    
-    // Localize script for AJAX
-    wp_localize_script('guilherme-cota-main', 'ajax_object', array(
-        'ajax_url' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('guilherme_cota_nonce')
-    ));
-}
-add_action('wp_enqueue_scripts', 'guilherme_cota_scripts');
-
 // Register block patterns
 function guilherme_cota_register_patterns() {
-    if (function_exists('register_block_pattern_category')) {
-        register_block_pattern_category('guilherme-cota', array(
-            'label' => __('Guilherme Cota Portfolio', 'guilherme-cota')
-        ));
-    }
+    // Register pattern categories
+    register_block_pattern_category('guilherme-cota', array(
+        'label' => __('Guilherme Cota', 'guilherme-cota'),
+    ));
 }
 add_action('init', 'guilherme_cota_register_patterns');
 
@@ -180,7 +147,7 @@ function guilherme_cota_save_project_meta($post_id) {
     if (!wp_verify_nonce($_POST['guilherme_cota_project_nonce_field'], 'guilherme_cota_project_nonce')) return;
     if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
     if (!current_user_can('edit_post', $post_id)) return;
-    
+
     if (isset($_POST['project_technologies'])) {
         update_post_meta($post_id, '_project_technologies', sanitize_text_field($_POST['project_technologies']));
     }
@@ -194,36 +161,50 @@ function guilherme_cota_save_project_meta($post_id) {
         update_post_meta($post_id, '_project_client', sanitize_text_field($_POST['project_client']));
     }
     if (isset($_POST['project_year'])) {
-        update_post_meta($post_id, '_project_year', sanitize_text_field($_POST['project_year']));
+        update_post_meta($post_id, '_project_year', absint($_POST['project_year']));
     }
 }
 add_action('save_post', 'guilherme_cota_save_project_meta');
 
 // Contact form handling
 function guilherme_cota_handle_contact_form() {
-    if (!wp_verify_nonce($_POST['nonce'], 'guilherme_cota_nonce')) {
-        wp_die('Security check failed');
-    }
+    check_ajax_referer('guilherme_cota_nonce', 'nonce');
     
     $name = sanitize_text_field($_POST['name']);
     $email = sanitize_email($_POST['email']);
+    $subject = sanitize_text_field($_POST['subject']);
     $message = sanitize_textarea_field($_POST['message']);
-    $company = sanitize_text_field($_POST['company']);
-    $budget = sanitize_text_field($_POST['budget']);
+    
+    // Validate required fields
+    if (empty($name) || empty($email) || empty($message)) {
+        wp_send_json_error('Todos os campos obrigatórios devem ser preenchidos.');
+        return;
+    }
+    
+    if (!is_email($email)) {
+        wp_send_json_error('Por favor, insira um e-mail válido.');
+        return;
+    }
+    
+    // Prepare email
+    $to = get_option('admin_email');
+    $email_subject = 'Novo contato do site: ' . $subject;
+    $email_message = "Nome: $name\n";
+    $email_message .= "E-mail: $email\n";
+    $email_message .= "Assunto: $subject\n\n";
+    $email_message .= "Mensagem:\n$message";
+    
+    $headers = array(
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: ' . $name . ' <' . $email . '>',
+        'Reply-To: ' . $email
+    );
     
     // Send email
-    $to = get_option('admin_email');
-    $subject = 'Nova mensagem de contato - ' . get_bloginfo('name');
-    $body = "Nome: {$name}\n";
-    $body .= "Email: {$email}\n";
-    $body .= "Empresa: {$company}\n";
-    $body .= "Orçamento: {$budget}\n";
-    $body .= "Mensagem: {$message}\n";
+    $sent = wp_mail($to, $email_subject, $email_message, $headers);
     
-    $headers = array('Content-Type: text/plain; charset=UTF-8');
-    
-    if (wp_mail($to, $subject, $body, $headers)) {
-        wp_send_json_success('Mensagem enviada com sucesso!');
+    if ($sent) {
+        wp_send_json_success('Mensagem enviada com sucesso! Retornarei em breve.');
     } else {
         wp_send_json_error('Erro ao enviar mensagem. Tente novamente.');
     }
@@ -231,101 +212,149 @@ function guilherme_cota_handle_contact_form() {
 add_action('wp_ajax_contact_form', 'guilherme_cota_handle_contact_form');
 add_action('wp_ajax_nopriv_contact_form', 'guilherme_cota_handle_contact_form');
 
+// Custom widgets area
+function guilherme_cota_widgets_init() {
+    register_sidebar(array(
+        'name'          => esc_html__('Footer Widget Area', 'guilherme-cota'),
+        'id'            => 'footer-1',
+        'description'   => esc_html__('Add widgets here to appear in your footer.', 'guilherme-cota'),
+        'before_widget' => '<div id="%1$s" class="widget %2$s">',
+        'after_widget'  => '</div>',
+        'before_title'  => '<h3 class="widget-title">',
+        'after_title'   => '</h3>',
+    ));
+}
+add_action('widgets_init', 'guilherme_cota_widgets_init');
+
+// Custom excerpt length
+function guilherme_cota_excerpt_length($length) {
+    return 20;
+}
+add_filter('excerpt_length', 'guilherme_cota_excerpt_length');
+
+// SEO and Performance optimizations
+function guilherme_cota_head_optimizations() {
+    // Remove unnecessary WordPress features
+    remove_action('wp_head', 'wp_generator');
+    remove_action('wp_head', 'wlwmanifest_link');
+    remove_action('wp_head', 'rsd_link');
+    remove_action('wp_head', 'wp_shortlink_wp_head');
+    
+    // Add preconnect for performance
+    echo '<link rel="preconnect" href="https://fonts.googleapis.com">';
+    echo '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>';
+    
+    // Add structured data for SEO
+    if (is_front_page()) {
+        echo '<script type="application/ld+json">';
+        echo json_encode(array(
+            '@context' => 'https://schema.org',
+            '@type' => 'Person',
+            'name' => 'Guilherme Cota',
+            'jobTitle' => 'Consultor Técnico e Desenvolvedor Full Stack',
+            'url' => home_url(),
+            'sameAs' => array(
+                'https://github.com/guilhermecota',
+                'https://linkedin.com/in/guilhermecota'
+            ),
+            'address' => array(
+                '@type' => 'PostalAddress',
+                'addressLocality' => 'Ouro Preto',
+                'addressRegion' => 'MG',
+                'addressCountry' => 'BR'
+            )
+        ));
+        echo '</script>';
+    }
+}
+add_action('wp_head', 'guilherme_cota_head_optimizations');
+
+// Security enhancements
+function guilherme_cota_security() {
+    // Hide WordPress version
+    remove_action('wp_head', 'wp_generator');
+    
+    // Disable XML-RPC
+    add_filter('xmlrpc_enabled', '__return_false');
+    
+    // Remove WordPress version from RSS
+    add_filter('the_generator', '__return_empty_string');
+}
+add_action('init', 'guilherme_cota_security');
+
+// Custom logo support
+function guilherme_cota_custom_logo_setup() {
+    $defaults = array(
+        'height'               => 100,
+        'width'                => 400,
+        'flex-height'          => true,
+        'flex-width'           => true,
+        'header-text'          => array('site-title', 'site-description'),
+        'unlink-homepage-logo' => true, 
+    );
+    add_theme_support('custom-logo', $defaults);
+}
+add_action('after_setup_theme', 'guilherme_cota_custom_logo_setup');
+
 // Customizer options
 function guilherme_cota_customize_register($wp_customize) {
-    // Hero Section
-    $wp_customize->add_section('hero_section', array(
-        'title' => __('Seção Hero', 'guilherme-cota'),
+    // Contact section
+    $wp_customize->add_section('contact_section', array(
+        'title'    => __('Configurações de Contato', 'guilherme-cota'),
         'priority' => 30,
     ));
     
-    $wp_customize->add_setting('hero_title', array(
-        'default' => 'Consultor técnico e desenvolvedor full stack',
-        'sanitize_callback' => 'sanitize_text_field',
-    ));
-    
-    $wp_customize->add_control('hero_title', array(
-        'label' => __('Título Principal', 'guilherme-cota'),
-        'section' => 'hero_section',
-        'type' => 'text',
-    ));
-    
-    $wp_customize->add_setting('hero_subtitle', array(
-        'default' => 'Ajudando pessoas e empresas a criarem soluções digitais robustas e escaláveis',
-        'sanitize_callback' => 'sanitize_textarea_field',
-    ));
-    
-    $wp_customize->add_control('hero_subtitle', array(
-        'label' => __('Subtítulo', 'guilherme-cota'),
-        'section' => 'hero_section',
-        'type' => 'textarea',
-    ));
-    
-    // Contact Info
-    $wp_customize->add_section('contact_info', array(
-        'title' => __('Informações de Contato', 'guilherme-cota'),
-        'priority' => 40,
-    ));
-    
-    $wp_customize->add_setting('contact_email', array(
-        'default' => 'contato@guilhermecota.dev',
-        'sanitize_callback' => 'sanitize_email',
-    ));
-    
-    $wp_customize->add_control('contact_email', array(
-        'label' => __('Email', 'guilherme-cota'),
-        'section' => 'contact_info',
-        'type' => 'email',
-    ));
-    
+    // Phone number
     $wp_customize->add_setting('contact_phone', array(
-        'default' => '+55 (31) 99999-9999',
+        'default'           => '',
         'sanitize_callback' => 'sanitize_text_field',
     ));
     
     $wp_customize->add_control('contact_phone', array(
-        'label' => __('Telefone', 'guilherme-cota'),
-        'section' => 'contact_info',
-        'type' => 'text',
+        'type'        => 'text',
+        'priority'    => 10,
+        'section'     => 'contact_section',
+        'label'       => 'Telefone',
+        'description' => 'Número de telefone para contato',
     ));
     
-    $wp_customize->add_setting('contact_location', array(
-        'default' => 'Ouro Preto, MG • Atendo todo o Brasil',
-        'sanitize_callback' => 'sanitize_text_field',
+    // Email
+    $wp_customize->add_setting('contact_email', array(
+        'default'           => get_option('admin_email'),
+        'sanitize_callback' => 'sanitize_email',
     ));
     
-    $wp_customize->add_control('contact_location', array(
-        'label' => __('Localização', 'guilherme-cota'),
-        'section' => 'contact_info',
-        'type' => 'text',
+    $wp_customize->add_control('contact_email', array(
+        'type'        => 'email',
+        'priority'    => 20,
+        'section'     => 'contact_section',
+        'label'       => 'E-mail',
+        'description' => 'E-mail para contato',
+    ));
+    
+    // Social links
+    $wp_customize->add_setting('social_github', array(
+        'default'           => '',
+        'sanitize_callback' => 'esc_url_raw',
+    ));
+    
+    $wp_customize->add_control('social_github', array(
+        'type'        => 'url',
+        'priority'    => 30,
+        'section'     => 'contact_section',
+        'label'       => 'GitHub URL',
+    ));
+    
+    $wp_customize->add_setting('social_linkedin', array(
+        'default'           => '',
+        'sanitize_callback' => 'esc_url_raw',
+    ));
+    
+    $wp_customize->add_control('social_linkedin', array(
+        'type'        => 'url',
+        'priority'    => 40,
+        'section'     => 'contact_section',
+        'label'       => 'LinkedIn URL',
     ));
 }
 add_action('customize_register', 'guilherme_cota_customize_register');
-
-// Helper functions
-function guilherme_cota_get_projects($limit = -1) {
-    return get_posts(array(
-        'post_type' => 'projeto',
-        'posts_per_page' => $limit,
-        'post_status' => 'publish'
-    ));
-}
-
-function guilherme_cota_get_services($limit = -1) {
-    return get_posts(array(
-        'post_type' => 'servico',
-        'posts_per_page' => $limit,
-        'post_status' => 'publish'
-    ));
-}
-
-// Block editor assets
-function guilherme_cota_block_editor_assets() {
-    wp_enqueue_script(
-        'guilherme-cota-block-editor',
-        get_template_directory_uri() . '/assets/block-editor.js',
-        array('wp-blocks', 'wp-dom-ready', 'wp-edit-post'),
-        '1.0.0'
-    );
-}
-add_action('enqueue_block_editor_assets', 'guilherme_cota_block_editor_assets');
